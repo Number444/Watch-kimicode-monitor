@@ -1,13 +1,13 @@
 <template>
-  <div class="page">
+  <div class="page" ontouchstart="onTouchStart" ontouchend="onTouchEnd">
     <!-- 头部：标题 + 套餐档位（两页共享） -->
     <div class="header">
       <text class="title">Kimi Code</text>
       <text class="plan-badge">{{ planLabel }}</text>
     </div>
 
-    <swiper class="swiper" indicator="true">
-      <!-- 第 1 页：额度展示 -->
+    <swiper class="swiper" indicator="true" onchange="onSwiperChange">
+      <!-- 第 1 页：纯额度展示（旧版样式） -->
       <div class="slide">
         <div class="card">
           <div class="row">
@@ -40,14 +40,13 @@
         </div>
 
         <text class="updated" if="{{ updatedAt }}">更新于 {{ updatedAt }}</text>
-        <text class="updated" if="{{ !updatedAt }}">右滑查看控制与日志 →</text>
       </div>
 
       <!-- 第 2 页：控制 + 诊断 -->
-      <div class="slide">
-        <input class="refresh-btn" type="button" value="刷 新" onclick="onRefresh" />
+      <div class="slide" ontouchstart="onTouchStart" ontouchend="onTouchEnd">
+        <input class="refresh-btn" type="button" value="刷 新" onclick="doRefresh" />
         <text class="status" style="color: {{ statusColor }};">{{ statusMsg }}</text>
-        <text class="diag" if="{{ diagText }}">{{ diagText }}</text>
+        <text class="diag">{{ diagText }}</text>
       </div>
     </swiper>
   </div>
@@ -65,7 +64,7 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
   }
   .title {
     font-size: 30px;
@@ -96,7 +95,7 @@
     background-color: #1c1c1e;
     border-radius: 16px;
     padding: 18px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
   .row {
     flex-direction: row;
@@ -116,7 +115,7 @@
     height: 12px;
     background-color: #38383a;
     border-radius: 6px;
-    margin: 14px 0;
+    margin: 12px 0;
   }
   .bar-fill {
     height: 12px;
@@ -135,7 +134,7 @@
   .status {
     font-size: 20px;
     text-align: center;
-    margin-top: 14px;
+    margin-top: 10px;
   }
   .diag {
     font-size: 14px;
@@ -143,12 +142,12 @@
     margin-top: 10px;
   }
   .refresh-btn {
-    width: 100%;
-    height: 72px;
+    width: 300px;
+    height: 64px;
     background-color: #0a84ff;
     border-radius: 16px;
     margin-top: 4px;
-    font-size: 28px;
+    font-size: 26px;
     color: #ffffff;
   }
 </style>
@@ -161,9 +160,15 @@
   import quota from '../../common/quota.js'
 
   const CACHE_KEY = 'quota_cache'
-  const APP_VER = '0.3.4'
+  const APP_VER = '0.4.0'
   const DIAG_MAX_LINES = 8
   const REQ_TIMEOUT_MS = 15000
+  const DIAG_INIT = '等待事件…'
+
+  // 刷新按钮的屏幕坐标命中区（clientX/Y，相对可视区域）
+  // 布局：padding-top 24 + header 46 + swiper 内 margin-top 4 → 按钮 y 74..138，x 18..318
+  const BTN_RECT = { x1: 14, y1: 70, x2: 322, y2: 144 }
+  const TAP_MAX_MOVE = 20
 
   const COLOR_NEUTRAL = '#8e8e93'
   const COLOR_BUSY = '#0a84ff'
@@ -186,18 +191,21 @@
       statusMsg: '初始化…',
       statusColor: COLOR_NEUTRAL,
       updatedAt: '',
-      diagText: '',
+      diagText: DIAG_INIT,
 
-      // 非视图状态
-      _diagLines: [],
-      _cacheTime: 0,
-      _reset5hMs: 0,
-      _resetWeeklyMs: 0,
-      _timer: null,
-      _conn: null,
-      _fetching: false,
-      _refreshing: false,
-      _reqTimeoutTimer: null
+      // 非视图状态（一律不用下划线前缀，避免框架跳过初始化）
+      cacheTime: 0,
+      reset5hMs: 0,
+      resetWeeklyMs: 0,
+      tickTimer: 0,
+      conn: null,
+      fetching: false,
+      refreshing: false,
+      reqTimeoutTimer: 0,
+      lastRefreshTap: 0,
+      touchStartX: -1,
+      touchStartY: -1,
+      curPage: -1 // -1=未知(swiper change事件可能不派发), 0/1=已确认页码
     },
 
     onInit() {
@@ -225,29 +233,27 @@
       this.stopTicker()
     },
 
-    /* ---------- 诊断工具 ---------- */
+    /* ---------- 诊断工具（纯字符串累加，不依赖数组字段） ---------- */
 
-    /** 屏幕诊断日志：保留最近 N 行，同时输出 console */
     diag(msg) {
       try {
         const t = new Date()
         const p = function (n) { return ('0' + n).slice(-2) }
         const line = p(t.getHours()) + ':' + p(t.getMinutes()) + ':' + p(t.getSeconds()) + ' ' + msg
-        this._diagLines.push(line)
-        if (this._diagLines.length > DIAG_MAX_LINES) this._diagLines.shift()
-        this.diagText = this._diagLines.join('\n')
+        let text = (this.diagText === DIAG_INIT) ? line : this.diagText + '\n' + line
+        const lines = text.split('\n')
+        if (lines.length > DIAG_MAX_LINES) text = lines.slice(-DIAG_MAX_LINES).join('\n')
+        this.diagText = text
       } catch (e) { /* 日志本身绝不抛错 */ }
       console.info('[diag] ' + msg)
     },
 
-    /** 把各种形态的异常/回调参数统一转成可读字符串 */
     errText(e) {
       if (e === undefined || e === null) return '无详情'
       if (typeof e === 'string') return e
       try { return JSON.stringify(e) } catch (x) { return '' + e }
     },
 
-    /** fail 回调的 (data, code) 标准化 */
     failText(data, code) {
       let s = ''
       if (data !== undefined && data !== null) s = this.errText(data)
@@ -255,20 +261,69 @@
       return s || '无详情'
     },
 
+    /* ---------- 安全定时器 ---------- */
+
+    safeTimeout(fn, ms) {
+      try { return setTimeout(fn, ms) } catch (e) { this.diag('setTimeout不可用: ' + this.errText(e)); return 0 }
+    },
+
+    safeClearTimeout(id) {
+      try { if (id) clearTimeout(id) } catch (e) { /* ignore */ }
+    },
+
+    /* ---------- 触摸坐标命中（绕开子组件 click 不派发的问题） ---------- */
+
+    touchXY(e) {
+      try {
+        const list = (e.changedTouches && e.changedTouches.length) ? e.changedTouches : e.touches
+        if (!list || !list.length) return null
+        const t = list[0]
+        const x = (t.clientX !== undefined) ? t.clientX : t.pageX
+        const y = (t.clientY !== undefined) ? t.clientY : t.pageY
+        if (x === undefined || y === undefined) return null
+        return { x: x, y: y }
+      } catch (err) { return null }
+    },
+
+    onTouchStart(e) {
+      const p = this.touchXY(e)
+      if (p) {
+        this.touchStartX = p.x
+        this.touchStartY = p.y
+      }
+    },
+
+    onTouchEnd(e) {
+      const p = this.touchXY(e)
+      const sx = this.touchStartX
+      const sy = this.touchStartY
+      this.touchStartX = -1
+      this.touchStartY = -1
+      if (!p || sx < 0) return
+      // 位移大 = 滑动手势（翻页），不当作点按
+      if (Math.abs(p.x - sx) > TAP_MAX_MOVE || Math.abs(p.y - sy) > TAP_MAX_MOVE) return
+      // 确认在第 1 页时不响应（该坐标区是 5 小时卡片，避免误触）
+      if (this.curPage === 0) return
+      if (p.x >= BTN_RECT.x1 && p.x <= BTN_RECT.x2 && p.y >= BTN_RECT.y1 && p.y <= BTN_RECT.y2) {
+        this.diag('坐标命中按钮区')
+        this.doRefresh()
+      }
+    },
+
+    onSwiperChange(e) {
+      if (e && e.index !== undefined) this.curPage = e.index
+    },
+
     /* ---------- 结果反馈（按钮下方彩色文字） ---------- */
 
-    /** 一次请求流程结束：ok=成功/失败，msg=原因摘要 */
     refreshDone(ok, msg) {
-      this._refreshing = false
-      if (this._reqTimeoutTimer) {
-        clearTimeout(this._reqTimeoutTimer)
-        this._reqTimeoutTimer = null
-      }
+      this.refreshing = false
+      this.safeClearTimeout(this.reqTimeoutTimer)
+      this.reqTimeoutTimer = 0
       this.statusMsg = (ok ? '✓ ' : '✗ ') + msg
       this.statusColor = ok ? COLOR_OK : COLOR_FAIL
     },
 
-    /** 进行中提示（蓝色） */
     refreshBusy(msg) {
       this.statusMsg = msg
       this.statusColor = COLOR_BUSY
@@ -287,7 +342,7 @@
           this.diag('interconnect.instance() 返回空')
           return
         }
-        this._conn = conn
+        this.conn = conn
         this.diag('手机通道已初始化')
         const self = this
         conn.onmessage = function (res) {
@@ -325,7 +380,7 @@
 
     /** 向手机端请求拉取最新额度（手机端监听 type:'pull'） */
     sendPullRequest() {
-      if (!this._conn) {
+      if (!this.conn) {
         this.diag('pull中止: 无连接实例')
         this.refreshDone(false, '手机通道未就绪')
         return
@@ -333,7 +388,7 @@
       const self = this
       this.diag('发送pull请求…')
       try {
-        this._conn.send({
+        this.conn.send({
           data: { type: 'pull', pkg: config.PKG_NAME, ts: Date.now() },
           success: function () {
             self.refreshBusy('已向手机请求数据…')
@@ -350,11 +405,11 @@
       }
     },
 
-    /* ---------- 手环直连通道（备选，官方支持矩阵称米环9Pro不支持 fetch） ---------- */
+    /* ---------- 手环直连通道（已实测米环9Pro可用） ---------- */
 
     tryDirectFetch() {
-      if (this._fetching) return
-      this._fetching = true
+      if (this.fetching) return
+      this.fetching = true
       this.refreshBusy('直连查询中…')
       this.diag('直连GET ' + config.API_URL)
       const self = this
@@ -365,7 +420,7 @@
           header: { 'Authorization': 'Bearer ' + config.API_KEY },
           responseType: 'json',
           success: function (res) {
-            self._fetching = false
+            self.fetching = false
             self.diag('直连返回 HTTP=' + (res && res.code))
             if (res.code === 200 && res.data) {
               try {
@@ -386,7 +441,7 @@
             }
           },
           fail: function (data, code) {
-            self._fetching = false
+            self.fetching = false
             self.diag('直连失败: ' + self.failText(data, code))
             if (config.DATA_SOURCE === 'auto') {
               self.refreshBusy('直连失败，转手机推送')
@@ -397,8 +452,8 @@
           }
         })
       } catch (e) {
-        this._fetching = false
-        this.diag('直连异常: ' + this.errText(e))
+        this.fetching = false
+        this.diag('直连异常: ' + self.errText(e))
         if (config.DATA_SOURCE === 'auto') {
           this.refreshBusy('本机不支持直连，转手机推送')
           this.sendPullRequest()
@@ -419,7 +474,7 @@
             if (raw) {
               try {
                 const obj = JSON.parse(raw)
-                self._cacheTime = obj.time || 0
+                self.cacheTime = obj.time || 0
                 self.renderUsages(obj.data)
                 self.updatedAt = quota.fmtTime(obj.time)
                 self.statusMsg = '缓存数据'
@@ -445,13 +500,13 @@
     },
 
     saveCache(data) {
-      this._cacheTime = Date.now()
-      this.updatedAt = quota.fmtTime(this._cacheTime)
+      this.cacheTime = Date.now()
+      this.updatedAt = quota.fmtTime(this.cacheTime)
       const self = this
       try {
         storage.set({
           key: CACHE_KEY,
-          value: JSON.stringify({ time: this._cacheTime, data: data }),
+          value: JSON.stringify({ time: this.cacheTime, data: data }),
           fail: function (d, c) { self.diag('写缓存失败: ' + self.failText(d, c)) }
         })
       } catch (e) {
@@ -461,7 +516,7 @@
 
     /** 缓存过期才请求新数据（onShow 去抖，避免亮屏反复请求） */
     maybeRefresh() {
-      const fresh = (Date.now() - this._cacheTime) < config.CACHE_TTL_MS
+      const fresh = (Date.now() - this.cacheTime) < config.CACHE_TTL_MS
       if (fresh) {
         this.diag('缓存新鲜，跳过请求')
         return
@@ -479,20 +534,24 @@
       }
     },
 
-    onRefresh() {
-      this.diag('手动刷新点击')
-      if (this._refreshing) {
-        this.diag('刷新进行中，忽略重复点击')
+    /** 刷新入口（input 的 onclick + 根容器坐标命中共用，防抖幂等） */
+    doRefresh() {
+      const now = Date.now()
+      if (now - (this.lastRefreshTap || 0) < 800) return
+      this.lastRefreshTap = now
+      this.diag('手动刷新触发')
+      if (this.refreshing) {
+        this.diag('刷新进行中，忽略')
         return
       }
-      this._refreshing = true
-      this._cacheTime = 0 // 强制视为过期
+      this.refreshing = true
+      this.cacheTime = 0 // 强制视为过期
       this.refreshBusy('刷新中…')
-      // 超时保护
+      // 超时保护（安全定时器）
       const self = this
-      if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
-      this._reqTimeoutTimer = setTimeout(function () {
-        if (self._refreshing) {
+      this.safeClearTimeout(this.reqTimeoutTimer)
+      this.reqTimeoutTimer = this.safeTimeout(function () {
+        if (self.refreshing) {
           self.diag('请求超时(' + (REQ_TIMEOUT_MS / 1000) + 's)')
           self.refreshDone(false, '请求超时')
         }
@@ -508,8 +567,8 @@
 
       this.applyQuota('fiveHour', vm.fiveHour)
       this.applyQuota('weekly', vm.weekly)
-      this._reset5hMs = vm.fiveHour.resetMs
-      this._resetWeeklyMs = vm.weekly.resetMs
+      this.reset5hMs = vm.fiveHour.resetMs
+      this.resetWeeklyMs = vm.weekly.resetMs
       this.tickCountdown()
     },
 
@@ -525,22 +584,22 @@
     startTicker() {
       this.stopTicker()
       const self = this
-      this._timer = setInterval(function () {
+      this.tickTimer = setInterval(function () {
         self.tickCountdown()
       }, 1000)
     },
 
     stopTicker() {
-      if (this._timer) {
-        clearInterval(this._timer)
-        this._timer = null
+      if (this.tickTimer) {
+        clearInterval(this.tickTimer)
+        this.tickTimer = 0
       }
     },
 
     tickCountdown() {
       const now = Date.now()
-      this.fiveHourReset = quota.countdownText(now, this._reset5hMs)
-      this.weeklyReset = quota.countdownText(now, this._resetWeeklyMs)
+      this.fiveHourReset = quota.countdownText(now, this.reset5hMs)
+      this.weeklyReset = quota.countdownText(now, this.resetWeeklyMs)
     }
   }
 </script>
