@@ -44,8 +44,8 @@
 
       <!-- 第 2 页：控制 + 诊断 -->
       <div class="slide" ontouchstart="onTouchStart" ontouchend="onTouchEnd">
-        <input class="refresh-btn" type="button" value="刷 新" onclick="doRefresh" />
-        <text class="status" style="color: {{ statusColor }};">{{ statusMsg }}</text>
+        <input class="refresh-btn" type="button" value="{{ btnValue }}"
+               style="background-color: {{ btnColor }};" onclick="doRefresh" />
         <text class="diag">{{ diagText }}</text>
       </div>
     </swiper>
@@ -131,15 +131,10 @@
     text-align: center;
     margin-top: 4px;
   }
-  .status {
-    font-size: 20px;
-    text-align: center;
-    margin-top: 10px;
-  }
   .diag {
     font-size: 14px;
     color: #636366;
-    margin-top: 10px;
+    margin-top: 12px;
   }
   .refresh-btn {
     width: 300px;
@@ -160,7 +155,7 @@
   import quota from '../../common/quota.js'
 
   const CACHE_KEY = 'quota_cache'
-  const APP_VER = '0.4.0'
+  const APP_VER = '0.4.1'
   const DIAG_MAX_LINES = 8
   const REQ_TIMEOUT_MS = 15000
   const DIAG_INIT = '等待事件…'
@@ -170,8 +165,6 @@
   const BTN_RECT = { x1: 14, y1: 70, x2: 322, y2: 144 }
   const TAP_MAX_MOVE = 20
 
-  const COLOR_NEUTRAL = '#8e8e93'
-  const COLOR_BUSY = '#0a84ff'
   const COLOR_OK = '#30d158'
   const COLOR_FAIL = '#ff453a'
 
@@ -188,8 +181,8 @@
       weeklyColor: '#8e8e93',
       weeklyText: '--',
       weeklyReset: '--',
-      statusMsg: '初始化…',
-      statusColor: COLOR_NEUTRAL,
+      btnValue: '刷 新',
+      btnColor: '#0a84ff',
       updatedAt: '',
       diagText: DIAG_INIT,
 
@@ -202,6 +195,7 @@
       fetching: false,
       refreshing: false,
       reqTimeoutTimer: 0,
+      btnRevertTimer: 0,
       lastRefreshTap: 0,
       touchStartX: -1,
       touchStartY: -1,
@@ -314,19 +308,44 @@
       if (e && e.index !== undefined) this.curPage = e.index
     },
 
-    /* ---------- 结果反馈（按钮下方彩色文字） ---------- */
+    /* ---------- 刷新按钮状态机（蓝常态/灰刷新中/绿成功/红失败） ---------- */
 
+    setBtn(state, msg) {
+      const self = this
+      this.safeClearTimeout(this.btnRevertTimer)
+      this.btnRevertTimer = 0
+      if (state === 'busy') {
+        this.btnValue = '刷新中…'
+        this.btnColor = '#48484a'
+      } else if (state === 'ok') {
+        this.btnValue = '✓ 已更新'
+        this.btnColor = COLOR_OK
+        this.btnRevertTimer = this.safeTimeout(function () { self.resetBtn() }, 2000)
+      } else if (state === 'fail') {
+        this.btnValue = '✗ ' + (msg || '失败')
+        this.btnColor = COLOR_FAIL
+        this.btnRevertTimer = this.safeTimeout(function () { self.resetBtn() }, 3000)
+      }
+    },
+
+    resetBtn() {
+      this.btnValue = '刷 新'
+      this.btnColor = '#0a84ff'
+    },
+
+    /** 一次请求流程结束：ok=成功/失败，msg=原因摘要 */
     refreshDone(ok, msg) {
       this.refreshing = false
       this.safeClearTimeout(this.reqTimeoutTimer)
       this.reqTimeoutTimer = 0
-      this.statusMsg = (ok ? '✓ ' : '✗ ') + msg
-      this.statusColor = ok ? COLOR_OK : COLOR_FAIL
+      this.diag((ok ? '成功: ' : '失败: ') + msg)
+      this.setBtn(ok ? 'ok' : 'fail', msg)
     },
 
+    /** 进行中：按钮置灰 + 记录日志 */
     refreshBusy(msg) {
-      this.statusMsg = msg
-      this.statusColor = COLOR_BUSY
+      this.setBtn('busy')
+      this.diag(msg)
     },
 
     /* ---------- 手机推送通道（主通道） ---------- */
@@ -477,8 +496,6 @@
                 self.cacheTime = obj.time || 0
                 self.renderUsages(obj.data)
                 self.updatedAt = quota.fmtTime(obj.time)
-                self.statusMsg = '缓存数据'
-                self.statusColor = COLOR_NEUTRAL
                 self.diag('缓存命中')
               } catch (e) {
                 self.diag('缓存损坏: ' + self.errText(e))

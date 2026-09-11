@@ -1,8 +1,8 @@
 {
   "package": "com.four.kimiquota",
   "name": "Kimi额度",
-  "versionName": "0.4.0",
-  "versionCode": 10,
+  "versionName": "0.4.1",
+  "versionCode": 11,
   "minPlatformVersion": 1200,
   "icon": "/common/logo.png",
   "deviceTypeList": ["watch"],

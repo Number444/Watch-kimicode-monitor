@@ -16,7 +16,7 @@ export default {
   DATA_SOURCE: 'auto',
 
   // 缓存有效期：亮屏时若缓存未超过该时长则不发起新请求（防 onShow 频繁请求）
-  CACHE_TTL_MS: 5 * 60 * 1000,
+  CACHE_TTL_MS: 2 * 60 * 1000,
 
   // 快应用包名（须与 manifest.json 的 package 一致，手机端推送时用于定位应用）
   PKG_NAME: 'com.four.kimiquota'
