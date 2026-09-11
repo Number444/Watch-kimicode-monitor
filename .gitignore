@@ -1,0 +1,15 @@
+# 依赖
+node_modules/
+
+# 构建产物与临时目录
+dist/
+build/
+.temp_*/
+
+# 签名私钥与证书（绝不入库；重新生成命令见 PC_BUILD_GUIDE.md）
+sign/
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.log

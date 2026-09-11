@@ -1,0 +1,487 @@
+<template>
+  <div class="page">
+    <!-- 头部：标题 + 套餐档位 -->
+    <div class="header">
+      <text class="title">Kimi Code</text>
+      <text class="plan-badge">{{ planLabel }}</text>
+    </div>
+
+    <!-- 5 小时滚动窗口 -->
+    <div class="card">
+      <div class="row">
+        <text class="label">5小时窗口</text>
+        <text class="pct" style="color: {{ fiveHourColor }};">{{ fiveHourPctText }}</text>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill"
+             style="width: {{ fiveHourBarWidth }}%; background-color: {{ fiveHourColor }};"></div>
+      </div>
+      <div class="row">
+        <text class="sub">剩余 {{ fiveHourText }}</text>
+        <text class="sub">重置 {{ fiveHourReset }}</text>
+      </div>
+    </div>
+
+    <!-- 周额度 -->
+    <div class="card">
+      <div class="row">
+        <text class="label">周额度</text>
+        <text class="pct" style="color: {{ weeklyColor }};">{{ weeklyPctText }}</text>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill"
+             style="width: {{ weeklyBarWidth }}%; background-color: {{ weeklyColor }};"></div>
+      </div>
+      <div class="row">
+        <text class="sub">剩余 {{ weeklyText }}</text>
+        <text class="sub">重置 {{ weeklyReset }}</text>
+      </div>
+    </div>
+
+    <!-- 状态栏 + 诊断日志 + 刷新 -->
+    <text class="status">{{ statusMsg }}</text>
+    <text class="updated" if="{{ updatedAt }}">更新于 {{ updatedAt }}</text>
+    <text class="diag" if="{{ diagText }}">{{ diagText }}</text>
+    <div class="refresh-btn" onclick="onRefresh">
+      <text class="refresh-text">刷 新</text>
+    </div>
+  </div>
+</template>
+
+<style>
+  .page {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    padding: 24px 18px;
+    background-color: #000000;
+  }
+  .header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .title {
+    font-size: 30px;
+    font-weight: bold;
+    color: #ffffff;
+  }
+  .plan-badge {
+    font-size: 20px;
+    color: #0a84ff;
+    border: 1px solid #0a84ff;
+    border-radius: 12px;
+    padding: 2px 12px;
+  }
+  .card {
+    flex-direction: column;
+    background-color: #1c1c1e;
+    border-radius: 16px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .row {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .label {
+    font-size: 24px;
+    color: #ebebf5;
+  }
+  .pct {
+    font-size: 34px;
+    font-weight: bold;
+  }
+  .bar-track {
+    width: 100%;
+    height: 12px;
+    background-color: #38383a;
+    border-radius: 6px;
+    margin: 12px 0;
+  }
+  .bar-fill {
+    height: 12px;
+    border-radius: 6px;
+  }
+  .sub {
+    font-size: 18px;
+    color: #8e8e93;
+  }
+  .status {
+    font-size: 18px;
+    color: #8e8e93;
+    text-align: center;
+    margin-top: 6px;
+  }
+  .updated {
+    font-size: 16px;
+    color: #636366;
+    text-align: center;
+    margin-top: 4px;
+  }
+  .diag {
+    font-size: 14px;
+    color: #636366;
+    margin-top: 6px;
+  }
+  .refresh-btn {
+    align-self: center;
+    margin-top: 12px;
+    background-color: #0a84ff;
+    border-radius: 24px;
+    padding: 10px 40px;
+  }
+  .refresh-text {
+    font-size: 24px;
+    color: #ffffff;
+  }
+</style>
+
+<script>
+  import storage from '@system.storage'
+  import interconnect from '@system.interconnect'
+  import fetch from '@system.fetch'
+  import config from '../../common/config.js'
+  import quota from '../../common/quota.js'
+
+  const CACHE_KEY = 'quota_cache'
+  const APP_VER = '0.2.0'
+  const DIAG_MAX_LINES = 5
+
+  export default {
+    private: {
+      planLabel: '--',
+      fiveHourPctText: '--',
+      fiveHourBarWidth: 0,
+      fiveHourColor: '#8e8e93',
+      fiveHourText: '--',
+      fiveHourReset: '--',
+      weeklyPctText: '--',
+      weeklyBarWidth: 0,
+      weeklyColor: '#8e8e93',
+      weeklyText: '--',
+      weeklyReset: '--',
+      statusMsg: '初始化…',
+      updatedAt: '',
+      diagText: '',
+
+      // 非视图状态
+      _diagLines: [],
+      _cacheTime: 0,
+      _reset5hMs: 0,
+      _resetWeeklyMs: 0,
+      _timer: null,
+      _conn: null,
+      _fetching: false
+    },
+
+    onInit() {
+      try {
+        this.diag('v' + APP_VER + ' 启动 source=' + config.DATA_SOURCE +
+          ' key=' + (config.API_KEY ? '已配置' : '空'))
+        this.diag('fetch接口=' + (typeof fetch.fetch) +
+          ' interconnect=' + (typeof interconnect.instance))
+        this.setupInterconnect()
+      } catch (e) {
+        this.diag('onInit异常: ' + this.errText(e))
+      }
+    },
+
+    onShow() {
+      this.startTicker()
+      this.loadCache()
+    },
+
+    onHide() {
+      this.stopTicker()
+    },
+
+    onDestroy() {
+      this.stopTicker()
+    },
+
+    /* ---------- 诊断工具 ---------- */
+
+    /** 屏幕诊断日志：保留最近 N 行，同时输出 console */
+    diag(msg) {
+      try {
+        const t = new Date()
+        const p = function (n) { return ('0' + n).slice(-2) }
+        const line = p(t.getHours()) + ':' + p(t.getMinutes()) + ':' + p(t.getSeconds()) + ' ' + msg
+        this._diagLines.push(line)
+        if (this._diagLines.length > DIAG_MAX_LINES) this._diagLines.shift()
+        this.diagText = this._diagLines.join('\n')
+      } catch (e) { /* 日志本身绝不抛错 */ }
+      console.info('[diag] ' + msg)
+    },
+
+    /** 把各种形态的异常/回调参数统一转成可读字符串 */
+    errText(e) {
+      if (e === undefined || e === null) return '无详情'
+      if (typeof e === 'string') return e
+      try { return JSON.stringify(e) } catch (x) { return '' + e }
+    },
+
+    /** fail 回调的 (data, code) 标准化 */
+    failText(data, code) {
+      let s = ''
+      if (data !== undefined && data !== null) s = this.errText(data)
+      if (code !== undefined) s += (s ? ' ' : '') + 'code=' + code
+      return s || '无详情'
+    },
+
+    /* ---------- 手机推送通道（主通道） ---------- */
+
+    setupInterconnect() {
+      try {
+        if (!interconnect || typeof interconnect.instance !== 'function') {
+          this.diag('interconnect 模块不可用')
+          return
+        }
+        const conn = interconnect.instance()
+        if (!conn) {
+          this.diag('interconnect.instance() 返回空')
+          return
+        }
+        this._conn = conn
+        this.diag('手机通道已初始化')
+        const self = this
+        conn.onmessage = function (res) {
+          const str = res && res.data
+          self.diag('收到推送 ' + (str ? str.length : 0) + ' 字节')
+          if (!str) return
+          self.handlePushedData(str)
+        }
+        conn.onerror = function (e) {
+          self.diag('通道错误: ' + self.errText(e))
+        }
+      } catch (e) {
+        this.diag('通道初始化异常: ' + this.errText(e))
+      }
+    },
+
+    /** 解析手机推送的数据：兼容裸 usages JSON 与 {type:'quota', payload:{...}} 包装 */
+    handlePushedData(str) {
+      let obj = null
+      try {
+        obj = JSON.parse(str)
+      } catch (e) {
+        this.diag('推送非JSON: ' + str.slice(0, 40))
+        return
+      }
+      const payload = obj.payload || obj
+      if (payload && (payload.usage || payload.limits)) {
+        this.saveCache(payload)
+        this.renderUsages(payload)
+        this.statusMsg = '已接收手机推送'
+      } else {
+        this.diag('推送缺少usage/limits字段')
+      }
+    },
+
+    /** 向手机端请求拉取最新额度（手机端监听 type:'pull'） */
+    sendPullRequest() {
+      if (!this._conn) {
+        this.statusMsg = '手机通道未就绪'
+        this.diag('pull中止: 无连接实例')
+        return
+      }
+      const self = this
+      this.diag('发送pull请求…')
+      try {
+        this._conn.send({
+          data: { type: 'pull', pkg: config.PKG_NAME, ts: Date.now() },
+          success: function () {
+            self.statusMsg = '已向手机请求数据…'
+            self.diag('pull发送成功')
+          },
+          fail: function (data, code) {
+            self.statusMsg = '手机未连接'
+            self.diag('pull失败: ' + self.failText(data, code))
+          }
+        })
+      } catch (e) {
+        this.statusMsg = '手机通道不可用'
+        this.diag('pull异常: ' + this.errText(e))
+      }
+    },
+
+    /* ---------- 手环直连通道（备选，官方支持矩阵称米环9Pro不支持 fetch） ---------- */
+
+    tryDirectFetch() {
+      if (this._fetching) return
+      this._fetching = true
+      this.statusMsg = '直连查询中…'
+      this.diag('直连GET ' + config.API_URL)
+      const self = this
+      try {
+        fetch.fetch({
+          url: config.API_URL,
+          method: 'GET',
+          header: { 'Authorization': 'Bearer ' + config.API_KEY },
+          responseType: 'json',
+          success: function (res) {
+            self._fetching = false
+            self.diag('直连返回 HTTP=' + (res && res.code))
+            if (res.code === 200 && res.data) {
+              try {
+                const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+                self.saveCache(data)
+                self.renderUsages(data)
+                self.statusMsg = '直连更新成功'
+              } catch (e) {
+                self.statusMsg = '响应解析失败'
+                self.diag('JSON解析异常: ' + self.errText(e))
+              }
+            } else if (res.code === 401) {
+              self.statusMsg = 'API Key 无效（401）'
+            } else {
+              self.statusMsg = '接口异常（HTTP ' + res.code + '）'
+              self.diag('响应体: ' + self.errText(res.data).slice(0, 60))
+            }
+          },
+          fail: function (data, code) {
+            self._fetching = false
+            self.diag('直连失败: ' + self.failText(data, code))
+            if (config.DATA_SOURCE === 'auto') {
+              self.statusMsg = '直连失败，转手机推送'
+              self.sendPullRequest()
+            } else {
+              self.statusMsg = '直连失败'
+            }
+          }
+        })
+      } catch (e) {
+        this._fetching = false
+        this.diag('直连异常: ' + this.errText(e))
+        if (config.DATA_SOURCE === 'auto') {
+          this.statusMsg = '本机不支持直连，转手机推送'
+          this.sendPullRequest()
+        } else {
+          this.statusMsg = '本机不支持直连'
+        }
+      }
+    },
+
+    /* ---------- 缓存与刷新策略 ---------- */
+
+    loadCache() {
+      const self = this
+      try {
+        storage.get({
+          key: CACHE_KEY,
+          success: function (raw) {
+            if (raw) {
+              try {
+                const obj = JSON.parse(raw)
+                self._cacheTime = obj.time || 0
+                self.renderUsages(obj.data)
+                self.updatedAt = quota.fmtTime(obj.time)
+                self.statusMsg = '缓存数据'
+                self.diag('缓存命中')
+              } catch (e) {
+                self.diag('缓存损坏: ' + self.errText(e))
+              }
+            } else {
+              self.diag('无缓存')
+            }
+            self.maybeRefresh()
+          },
+          fail: function (data, code) {
+            self.diag('读缓存失败: ' + self.failText(data, code))
+            self.maybeRefresh()
+          }
+        })
+      } catch (e) {
+        this.diag('storage异常: ' + this.errText(e))
+        this.maybeRefresh()
+      }
+    },
+
+    saveCache(data) {
+      this._cacheTime = Date.now()
+      this.updatedAt = quota.fmtTime(this._cacheTime)
+      const self = this
+      try {
+        storage.set({
+          key: CACHE_KEY,
+          value: JSON.stringify({ time: this._cacheTime, data: data }),
+          fail: function (d, c) { self.diag('写缓存失败: ' + self.failText(d, c)) }
+        })
+      } catch (e) {
+        this.diag('写缓存异常: ' + this.errText(e))
+      }
+    },
+
+    /** 缓存过期才请求新数据（onShow 去抖，避免亮屏反复请求） */
+    maybeRefresh() {
+      const fresh = (Date.now() - this._cacheTime) < config.CACHE_TTL_MS
+      if (fresh) {
+        this.diag('缓存新鲜，跳过请求')
+        return
+      }
+      this.requestFresh()
+    },
+
+    requestFresh() {
+      const canDirect = config.DATA_SOURCE !== 'push' && config.API_KEY
+      this.diag(canDirect ? '策略: 直连优先' : '策略: 手机推送')
+      if (canDirect) {
+        this.tryDirectFetch()
+      } else {
+        this.sendPullRequest()
+      }
+    },
+
+    onRefresh() {
+      this.diag('手动刷新')
+      this._cacheTime = 0 // 强制视为过期
+      this.requestFresh()
+    },
+
+    /* ---------- 渲染与倒计时 ---------- */
+
+    renderUsages(raw) {
+      const vm = quota.parseUsages(raw)
+      this.planLabel = vm.plan
+
+      this.applyQuota('fiveHour', vm.fiveHour)
+      this.applyQuota('weekly', vm.weekly)
+      this._reset5hMs = vm.fiveHour.resetMs
+      this._resetWeeklyMs = vm.weekly.resetMs
+      this.tickCountdown()
+    },
+
+    applyQuota(prefix, q) {
+      const pctText = q.pct === null ? '--' : q.pct + '%'
+      this[prefix + 'PctText'] = pctText
+      this[prefix + 'BarWidth'] = q.pct === null ? 0 : q.pct
+      this[prefix + 'Color'] = quota.colorFor(q.pct)
+      this[prefix + 'Text'] =
+        (q.remaining === null || q.limit === null) ? '--' : q.remaining + ' / ' + q.limit
+    },
+
+    startTicker() {
+      this.stopTicker()
+      const self = this
+      this._timer = setInterval(function () {
+        self.tickCountdown()
+      }, 1000)
+    },
+
+    stopTicker() {
+      if (this._timer) {
+        clearInterval(this._timer)
+        this._timer = null
+      }
+    },
+
+    tickCountdown() {
+      const now = Date.now()
+      this.fiveHourReset = quota.countdownText(now, this._reset5hMs)
+      this.weeklyReset = quota.countdownText(now, this._resetWeeklyMs)
+    }
+  }
+</script>

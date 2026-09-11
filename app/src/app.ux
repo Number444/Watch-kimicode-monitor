@@ -1,0 +1,10 @@
+<script>
+  export default {
+    onCreate() {
+      console.info('kimi-quota app onCreate')
+    },
+    onDestroy() {
+      console.info('kimi-quota app onDestroy')
+    }
+  }
+</script>

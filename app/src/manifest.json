@@ -1,0 +1,30 @@
+{
+  "package": "com.four.kimiquota",
+  "name": "Kimi额度",
+  "versionName": "0.2.0",
+  "versionCode": 2,
+  "minPlatformVersion": 1200,
+  "icon": "/common/logo.png",
+  "deviceTypeList": ["watch"],
+  "features": [
+    { "name": "system.interconnect" },
+    { "name": "system.storage" },
+    { "name": "system.fetch" },
+    { "name": "system.network" }
+  ],
+  "config": {
+    "logLevel": "info",
+    "designWidth": 336
+  },
+  "display": {
+    "backgroundColor": "#000000"
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index"
+      }
+    }
+  }
+}
