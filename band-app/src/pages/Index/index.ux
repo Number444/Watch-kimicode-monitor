@@ -1,50 +1,57 @@
 <template>
   <div class="page">
-    <!-- 头部：标题 + 套餐档位 -->
+    <!-- 头部：标题 + 套餐档位（两页共享） -->
     <div class="header">
       <text class="title">Kimi Code</text>
       <text class="plan-badge">{{ planLabel }}</text>
     </div>
 
-    <!-- 5 小时滚动窗口 -->
-    <div class="card">
-      <div class="row">
-        <text class="label">5小时窗口</text>
-        <text class="pct" style="color: {{ fiveHourColor }};">{{ fiveHourPctText }}</text>
-      </div>
-      <div class="bar-track">
-        <div class="bar-fill"
-             style="width: {{ fiveHourBarWidth }}%; background-color: {{ fiveHourColor }};"></div>
-      </div>
-      <div class="row">
-        <text class="sub">剩余 {{ fiveHourText }}</text>
-        <text class="sub">重置 {{ fiveHourReset }}</text>
-      </div>
-    </div>
+    <swiper class="swiper" indicator="true">
+      <!-- 第 1 页：额度展示 -->
+      <div class="slide">
+        <div class="card">
+          <div class="row">
+            <text class="label">5小时窗口</text>
+            <text class="pct" style="color: {{ fiveHourColor }};">{{ fiveHourPctText }}</text>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill"
+                 style="width: {{ fiveHourBarWidth }}%; background-color: {{ fiveHourColor }};"></div>
+          </div>
+          <div class="row">
+            <text class="sub">剩余 {{ fiveHourText }}</text>
+            <text class="sub">重置 {{ fiveHourReset }}</text>
+          </div>
+        </div>
 
-    <!-- 周额度 -->
-    <div class="card">
-      <div class="row">
-        <text class="label">周额度</text>
-        <text class="pct" style="color: {{ weeklyColor }};">{{ weeklyPctText }}</text>
-      </div>
-      <div class="bar-track">
-        <div class="bar-fill"
-             style="width: {{ weeklyBarWidth }}%; background-color: {{ weeklyColor }};"></div>
-      </div>
-      <div class="row">
-        <text class="sub">剩余 {{ weeklyText }}</text>
-        <text class="sub">重置 {{ weeklyReset }}</text>
-      </div>
-    </div>
+        <div class="card">
+          <div class="row">
+            <text class="label">周额度</text>
+            <text class="pct" style="color: {{ weeklyColor }};">{{ weeklyPctText }}</text>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill"
+                 style="width: {{ weeklyBarWidth }}%; background-color: {{ weeklyColor }};"></div>
+          </div>
+          <div class="row">
+            <text class="sub">剩余 {{ weeklyText }}</text>
+            <text class="sub">重置 {{ weeklyReset }}</text>
+          </div>
+        </div>
 
-    <!-- 状态栏 + 诊断日志 + 刷新 -->
-    <text class="status">{{ statusMsg }}</text>
-    <text class="updated" if="{{ updatedAt }}">更新于 {{ updatedAt }}</text>
-    <text class="diag" if="{{ diagText }}">{{ diagText }}</text>
-    <div class="refresh-btn" onclick="onRefresh">
-      <text class="refresh-text">刷 新</text>
-    </div>
+        <text class="updated" if="{{ updatedAt }}">更新于 {{ updatedAt }}</text>
+        <text class="updated" if="{{ !updatedAt }}">右滑查看控制与日志 →</text>
+      </div>
+
+      <!-- 第 2 页：控制 + 诊断 -->
+      <div class="slide">
+        <div class="refresh-btn" style="background-color: {{ btnColor }};" onclick="onRefresh">
+          <text class="refresh-text">{{ btnText }}</text>
+        </div>
+        <text class="status">{{ statusMsg }}</text>
+        <text class="diag" if="{{ diagText }}">{{ diagText }}</text>
+      </div>
+    </swiper>
   </div>
 </template>
 
@@ -60,7 +67,7 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
   .title {
     font-size: 30px;
@@ -74,12 +81,24 @@
     border-radius: 12px;
     padding: 2px 12px;
   }
+  .swiper {
+    width: 100%;
+    height: 380px;
+    indicator-color: #38383a;
+    indicator-selected-color: #0a84ff;
+    indicator-size: 8px;
+  }
+  .slide {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
   .card {
     flex-direction: column;
     background-color: #1c1c1e;
     border-radius: 16px;
-    padding: 16px 18px;
-    margin-bottom: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
   }
   .row {
     flex-direction: row;
@@ -91,7 +110,7 @@
     color: #ebebf5;
   }
   .pct {
-    font-size: 34px;
+    font-size: 36px;
     font-weight: bold;
   }
   .bar-track {
@@ -99,7 +118,7 @@
     height: 12px;
     background-color: #38383a;
     border-radius: 6px;
-    margin: 12px 0;
+    margin: 14px 0;
   }
   .bar-fill {
     height: 12px;
@@ -109,33 +128,35 @@
     font-size: 18px;
     color: #8e8e93;
   }
-  .status {
-    font-size: 18px;
-    color: #8e8e93;
-    text-align: center;
-    margin-top: 6px;
-  }
   .updated {
     font-size: 16px;
     color: #636366;
     text-align: center;
     margin-top: 4px;
   }
+  .status {
+    font-size: 18px;
+    color: #8e8e93;
+    text-align: center;
+    margin-top: 14px;
+  }
   .diag {
     font-size: 14px;
     color: #636366;
-    margin-top: 6px;
+    margin-top: 10px;
   }
   .refresh-btn {
     align-self: center;
-    margin-top: 12px;
+    width: 100%;
     background-color: #0a84ff;
     border-radius: 24px;
-    padding: 10px 40px;
+    padding: 12px 0;
+    margin-top: 4px;
   }
   .refresh-text {
     font-size: 24px;
     color: #ffffff;
+    text-align: center;
   }
 </style>
 
@@ -147,8 +168,9 @@
   import quota from '../../common/quota.js'
 
   const CACHE_KEY = 'quota_cache'
-  const APP_VER = '0.2.0'
-  const DIAG_MAX_LINES = 5
+  const APP_VER = '0.3.0'
+  const DIAG_MAX_LINES = 8
+  const REQ_TIMEOUT_MS = 15000
 
   export default {
     private: {
@@ -166,6 +188,8 @@
       statusMsg: '初始化…',
       updatedAt: '',
       diagText: '',
+      btnText: '刷 新',
+      btnColor: '#0a84ff',
 
       // 非视图状态
       _diagLines: [],
@@ -174,7 +198,10 @@
       _resetWeeklyMs: 0,
       _timer: null,
       _conn: null,
-      _fetching: false
+      _fetching: false,
+      _btnBusy: false,
+      _btnRevertTimer: null,
+      _reqTimeoutTimer: null
     },
 
     onInit() {
@@ -232,6 +259,53 @@
       return s || '无详情'
     },
 
+    /* ---------- 刷新按钮状态机 ---------- */
+
+    /** state: 'busy' | 'ok' | 'fail' */
+    setBtn(state) {
+      const self = this
+      if (this._btnRevertTimer) {
+        clearTimeout(this._btnRevertTimer)
+        this._btnRevertTimer = null
+      }
+      if (state === 'busy') {
+        this._btnBusy = true
+        this.btnText = '刷新中…'
+        this.btnColor = '#48484a'
+        // 请求超时保护
+        if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
+        this._reqTimeoutTimer = setTimeout(function () {
+          if (self._btnBusy) {
+            self.diag('请求超时(' + (REQ_TIMEOUT_MS / 1000) + 's)')
+            self.setBtn('fail')
+          }
+        }, REQ_TIMEOUT_MS)
+      } else if (state === 'ok') {
+        this._btnBusy = false
+        if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
+        this.btnText = '✓ 已更新'
+        this.btnColor = '#30d158'
+        this._btnRevertTimer = setTimeout(function () { self.resetBtn() }, 2000)
+      } else if (state === 'fail') {
+        this._btnBusy = false
+        if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
+        this.btnText = '✗ 失败'
+        this.btnColor = '#ff453a'
+        this._btnRevertTimer = setTimeout(function () { self.resetBtn() }, 3000)
+      }
+    },
+
+    resetBtn() {
+      this._btnBusy = false
+      this.btnText = '刷 新'
+      this.btnColor = '#0a84ff'
+    },
+
+    /** 数据落地时调用：仅当按钮处于等待状态时给它成功反馈 */
+    notifyDataArrived() {
+      if (this._btnBusy) this.setBtn('ok')
+    },
+
     /* ---------- 手机推送通道（主通道） ---------- */
 
     setupInterconnect() {
@@ -276,6 +350,7 @@
         this.saveCache(payload)
         this.renderUsages(payload)
         this.statusMsg = '已接收手机推送'
+        this.notifyDataArrived()
       } else {
         this.diag('推送缺少usage/limits字段')
       }
@@ -286,6 +361,7 @@
       if (!this._conn) {
         this.statusMsg = '手机通道未就绪'
         this.diag('pull中止: 无连接实例')
+        if (this._btnBusy) this.setBtn('fail')
         return
       }
       const self = this
@@ -300,11 +376,13 @@
           fail: function (data, code) {
             self.statusMsg = '手机未连接'
             self.diag('pull失败: ' + self.failText(data, code))
+            if (self._btnBusy) self.setBtn('fail')
           }
         })
       } catch (e) {
         this.statusMsg = '手机通道不可用'
         this.diag('pull异常: ' + this.errText(e))
+        if (this._btnBusy) this.setBtn('fail')
       }
     },
 
@@ -331,15 +409,20 @@
                 self.saveCache(data)
                 self.renderUsages(data)
                 self.statusMsg = '直连更新成功'
+                self.notifyDataArrived()
               } catch (e) {
                 self.statusMsg = '响应解析失败'
                 self.diag('JSON解析异常: ' + self.errText(e))
+                if (self._btnBusy) self.setBtn('fail')
               }
             } else if (res.code === 401) {
               self.statusMsg = 'API Key 无效（401）'
+              self.diag('响应体: ' + self.errText(res.data).slice(0, 60))
+              if (self._btnBusy) self.setBtn('fail')
             } else {
               self.statusMsg = '接口异常（HTTP ' + res.code + '）'
               self.diag('响应体: ' + self.errText(res.data).slice(0, 60))
+              if (self._btnBusy) self.setBtn('fail')
             }
           },
           fail: function (data, code) {
@@ -350,6 +433,7 @@
               self.sendPullRequest()
             } else {
               self.statusMsg = '直连失败'
+              if (self._btnBusy) self.setBtn('fail')
             }
           }
         })
@@ -361,6 +445,7 @@
           this.sendPullRequest()
         } else {
           this.statusMsg = '本机不支持直连'
+          if (this._btnBusy) this.setBtn('fail')
         }
       }
     },
@@ -436,8 +521,13 @@
     },
 
     onRefresh() {
+      if (this._btnBusy) {
+        this.diag('刷新进行中，忽略重复点击')
+        return
+      }
       this.diag('手动刷新')
       this._cacheTime = 0 // 强制视为过期
+      this.setBtn('busy')
       this.requestFresh()
     },
 
