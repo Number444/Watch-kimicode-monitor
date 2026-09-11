@@ -45,10 +45,8 @@
 
       <!-- 第 2 页：控制 + 诊断 -->
       <div class="slide">
-        <div class="refresh-btn" style="background-color: {{ btnColor }};" onclick="onRefresh">
-          <text class="refresh-text">{{ btnText }}</text>
-        </div>
-        <text class="status">{{ statusMsg }}</text>
+        <input class="refresh-btn" type="button" value="刷 新" onclick="onRefresh" />
+        <text class="status" style="color: {{ statusColor }};">{{ statusMsg }}</text>
         <text class="diag" if="{{ diagText }}">{{ diagText }}</text>
       </div>
     </swiper>
@@ -135,8 +133,7 @@
     margin-top: 4px;
   }
   .status {
-    font-size: 18px;
-    color: #8e8e93;
+    font-size: 20px;
     text-align: center;
     margin-top: 14px;
   }
@@ -146,17 +143,13 @@
     margin-top: 10px;
   }
   .refresh-btn {
-    align-self: center;
     width: 100%;
+    height: 72px;
     background-color: #0a84ff;
-    border-radius: 24px;
-    padding: 12px 0;
+    border-radius: 16px;
     margin-top: 4px;
-  }
-  .refresh-text {
-    font-size: 24px;
+    font-size: 28px;
     color: #ffffff;
-    text-align: center;
   }
 </style>
 
@@ -168,9 +161,14 @@
   import quota from '../../common/quota.js'
 
   const CACHE_KEY = 'quota_cache'
-  const APP_VER = '0.3.0'
+  const APP_VER = '0.3.4'
   const DIAG_MAX_LINES = 8
   const REQ_TIMEOUT_MS = 15000
+
+  const COLOR_NEUTRAL = '#8e8e93'
+  const COLOR_BUSY = '#0a84ff'
+  const COLOR_OK = '#30d158'
+  const COLOR_FAIL = '#ff453a'
 
   export default {
     private: {
@@ -186,10 +184,9 @@
       weeklyText: '--',
       weeklyReset: '--',
       statusMsg: '初始化…',
+      statusColor: COLOR_NEUTRAL,
       updatedAt: '',
       diagText: '',
-      btnText: '刷 新',
-      btnColor: '#0a84ff',
 
       // 非视图状态
       _diagLines: [],
@@ -199,8 +196,7 @@
       _timer: null,
       _conn: null,
       _fetching: false,
-      _btnBusy: false,
-      _btnRevertTimer: null,
+      _refreshing: false,
       _reqTimeoutTimer: null
     },
 
@@ -259,51 +255,23 @@
       return s || '无详情'
     },
 
-    /* ---------- 刷新按钮状态机 ---------- */
+    /* ---------- 结果反馈（按钮下方彩色文字） ---------- */
 
-    /** state: 'busy' | 'ok' | 'fail' */
-    setBtn(state) {
-      const self = this
-      if (this._btnRevertTimer) {
-        clearTimeout(this._btnRevertTimer)
-        this._btnRevertTimer = null
+    /** 一次请求流程结束：ok=成功/失败，msg=原因摘要 */
+    refreshDone(ok, msg) {
+      this._refreshing = false
+      if (this._reqTimeoutTimer) {
+        clearTimeout(this._reqTimeoutTimer)
+        this._reqTimeoutTimer = null
       }
-      if (state === 'busy') {
-        this._btnBusy = true
-        this.btnText = '刷新中…'
-        this.btnColor = '#48484a'
-        // 请求超时保护
-        if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
-        this._reqTimeoutTimer = setTimeout(function () {
-          if (self._btnBusy) {
-            self.diag('请求超时(' + (REQ_TIMEOUT_MS / 1000) + 's)')
-            self.setBtn('fail')
-          }
-        }, REQ_TIMEOUT_MS)
-      } else if (state === 'ok') {
-        this._btnBusy = false
-        if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
-        this.btnText = '✓ 已更新'
-        this.btnColor = '#30d158'
-        this._btnRevertTimer = setTimeout(function () { self.resetBtn() }, 2000)
-      } else if (state === 'fail') {
-        this._btnBusy = false
-        if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
-        this.btnText = '✗ 失败'
-        this.btnColor = '#ff453a'
-        this._btnRevertTimer = setTimeout(function () { self.resetBtn() }, 3000)
-      }
+      this.statusMsg = (ok ? '✓ ' : '✗ ') + msg
+      this.statusColor = ok ? COLOR_OK : COLOR_FAIL
     },
 
-    resetBtn() {
-      this._btnBusy = false
-      this.btnText = '刷 新'
-      this.btnColor = '#0a84ff'
-    },
-
-    /** 数据落地时调用：仅当按钮处于等待状态时给它成功反馈 */
-    notifyDataArrived() {
-      if (this._btnBusy) this.setBtn('ok')
+    /** 进行中提示（蓝色） */
+    refreshBusy(msg) {
+      this.statusMsg = msg
+      this.statusColor = COLOR_BUSY
     },
 
     /* ---------- 手机推送通道（主通道） ---------- */
@@ -349,8 +317,7 @@
       if (payload && (payload.usage || payload.limits)) {
         this.saveCache(payload)
         this.renderUsages(payload)
-        this.statusMsg = '已接收手机推送'
-        this.notifyDataArrived()
+        this.refreshDone(true, '收到手机推送')
       } else {
         this.diag('推送缺少usage/limits字段')
       }
@@ -359,9 +326,8 @@
     /** 向手机端请求拉取最新额度（手机端监听 type:'pull'） */
     sendPullRequest() {
       if (!this._conn) {
-        this.statusMsg = '手机通道未就绪'
         this.diag('pull中止: 无连接实例')
-        if (this._btnBusy) this.setBtn('fail')
+        this.refreshDone(false, '手机通道未就绪')
         return
       }
       const self = this
@@ -370,19 +336,17 @@
         this._conn.send({
           data: { type: 'pull', pkg: config.PKG_NAME, ts: Date.now() },
           success: function () {
-            self.statusMsg = '已向手机请求数据…'
+            self.refreshBusy('已向手机请求数据…')
             self.diag('pull发送成功')
           },
           fail: function (data, code) {
-            self.statusMsg = '手机未连接'
             self.diag('pull失败: ' + self.failText(data, code))
-            if (self._btnBusy) self.setBtn('fail')
+            self.refreshDone(false, '手机未连接')
           }
         })
       } catch (e) {
-        this.statusMsg = '手机通道不可用'
         this.diag('pull异常: ' + this.errText(e))
-        if (this._btnBusy) this.setBtn('fail')
+        this.refreshDone(false, '手机通道不可用')
       }
     },
 
@@ -391,7 +355,7 @@
     tryDirectFetch() {
       if (this._fetching) return
       this._fetching = true
-      this.statusMsg = '直连查询中…'
+      this.refreshBusy('直连查询中…')
       this.diag('直连GET ' + config.API_URL)
       const self = this
       try {
@@ -408,32 +372,27 @@
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
                 self.saveCache(data)
                 self.renderUsages(data)
-                self.statusMsg = '直连更新成功'
-                self.notifyDataArrived()
+                self.refreshDone(true, '直连更新成功')
               } catch (e) {
-                self.statusMsg = '响应解析失败'
                 self.diag('JSON解析异常: ' + self.errText(e))
-                if (self._btnBusy) self.setBtn('fail')
+                self.refreshDone(false, '响应解析失败')
               }
             } else if (res.code === 401) {
-              self.statusMsg = 'API Key 无效（401）'
               self.diag('响应体: ' + self.errText(res.data).slice(0, 60))
-              if (self._btnBusy) self.setBtn('fail')
+              self.refreshDone(false, 'API Key 无效(401)')
             } else {
-              self.statusMsg = '接口异常（HTTP ' + res.code + '）'
               self.diag('响应体: ' + self.errText(res.data).slice(0, 60))
-              if (self._btnBusy) self.setBtn('fail')
+              self.refreshDone(false, '接口异常 HTTP ' + res.code)
             }
           },
           fail: function (data, code) {
             self._fetching = false
             self.diag('直连失败: ' + self.failText(data, code))
             if (config.DATA_SOURCE === 'auto') {
-              self.statusMsg = '直连失败，转手机推送'
+              self.refreshBusy('直连失败，转手机推送')
               self.sendPullRequest()
             } else {
-              self.statusMsg = '直连失败'
-              if (self._btnBusy) self.setBtn('fail')
+              self.refreshDone(false, '直连失败')
             }
           }
         })
@@ -441,11 +400,10 @@
         this._fetching = false
         this.diag('直连异常: ' + this.errText(e))
         if (config.DATA_SOURCE === 'auto') {
-          this.statusMsg = '本机不支持直连，转手机推送'
+          this.refreshBusy('本机不支持直连，转手机推送')
           this.sendPullRequest()
         } else {
-          this.statusMsg = '本机不支持直连'
-          if (this._btnBusy) this.setBtn('fail')
+          this.refreshDone(false, '本机不支持直连')
         }
       }
     },
@@ -465,6 +423,7 @@
                 self.renderUsages(obj.data)
                 self.updatedAt = quota.fmtTime(obj.time)
                 self.statusMsg = '缓存数据'
+                self.statusColor = COLOR_NEUTRAL
                 self.diag('缓存命中')
               } catch (e) {
                 self.diag('缓存损坏: ' + self.errText(e))
@@ -521,13 +480,23 @@
     },
 
     onRefresh() {
-      if (this._btnBusy) {
+      this.diag('手动刷新点击')
+      if (this._refreshing) {
         this.diag('刷新进行中，忽略重复点击')
         return
       }
-      this.diag('手动刷新')
+      this._refreshing = true
       this._cacheTime = 0 // 强制视为过期
-      this.setBtn('busy')
+      this.refreshBusy('刷新中…')
+      // 超时保护
+      const self = this
+      if (this._reqTimeoutTimer) clearTimeout(this._reqTimeoutTimer)
+      this._reqTimeoutTimer = setTimeout(function () {
+        if (self._refreshing) {
+          self.diag('请求超时(' + (REQ_TIMEOUT_MS / 1000) + 's)')
+          self.refreshDone(false, '请求超时')
+        }
+      }, REQ_TIMEOUT_MS)
       this.requestFresh()
     },
 
