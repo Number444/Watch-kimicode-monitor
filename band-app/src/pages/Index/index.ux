@@ -1,9 +1,9 @@
 <template>
   <div class="page" ontouchstart="onTouchStart" ontouchend="onTouchEnd">
-    <!-- 头部：标题 + 套餐档位（两页共享） -->
+    <!-- 头部：官网 logo（两页共享，启动时随机二选一） -->
     <div class="header">
-      <text class="title">Kimi Code</text>
-      <text class="plan-badge">{{ planLabel }}</text>
+      <image if="{{ logoKfc }}" class="logo logo-kfc" src="./kfc-logo.png" />
+      <image else class="logo logo-pill" src="./kimi-logo.png" />
     </div>
 
     <swiper class="swiper" indicator="true" onchange="onSwiperChange">
@@ -19,7 +19,7 @@
                  style="width: {{ fiveHourBarWidth }}%; background-color: {{ fiveHourColor }};"></div>
           </div>
           <div class="row">
-            <text class="sub">剩余 {{ fiveHourText }}</text>
+            <text class="sub">已用 {{ fiveHourText }}</text>
             <text class="sub">重置 {{ fiveHourReset }}</text>
           </div>
         </div>
@@ -34,7 +34,7 @@
                  style="width: {{ weeklyBarWidth }}%; background-color: {{ weeklyColor }};"></div>
           </div>
           <div class="row">
-            <text class="sub">剩余 {{ weeklyText }}</text>
+            <text class="sub">已用 {{ weeklyText }}</text>
             <text class="sub">重置 {{ weeklyReset }}</text>
           </div>
         </div>
@@ -66,17 +66,16 @@
     align-items: center;
     margin-bottom: 10px;
   }
-  .title {
-    font-size: 30px;
-    font-weight: bold;
-    color: #ffffff;
+  /* 右移 8px 平衡重心（右侧徽章已移除，左侧留白偏大） */
+  .logo-pill {
+    width: 92px;
+    height: 36px;
+    margin-left: 8px;
   }
-  .plan-badge {
-    font-size: 20px;
-    color: #0a84ff;
-    border: 1px solid #0a84ff;
-    border-radius: 12px;
-    padding: 2px 12px;
+  .logo-kfc {
+    width: 154px;
+    height: 32px;
+    margin-left: 8px;
   }
   .swiper {
     width: 100%;
@@ -170,7 +169,7 @@
 
   export default {
     private: {
-      planLabel: '--',
+      logoKfc: false,
       fiveHourPctText: '--',
       fiveHourBarWidth: 0,
       fiveHourColor: '#8e8e93',
@@ -204,7 +203,9 @@
 
     onInit() {
       try {
-        this.diag('v' + APP_VER + ' 启动 source=' + config.DATA_SOURCE +
+        this.logoKfc = Math.random() < 0.5
+        this.diag('v' + APP_VER + ' 启动 logo=' + (this.logoKfc ? 'kfc' : 'pill') +
+          ' source=' + config.DATA_SOURCE +
           ' key=' + (config.API_KEY ? '已配置' : '空'))
         this.diag('fetch接口=' + (typeof fetch.fetch) +
           ' interconnect=' + (typeof interconnect.instance))
@@ -580,7 +581,6 @@
 
     renderUsages(raw) {
       const vm = quota.parseUsages(raw)
-      this.planLabel = vm.plan
 
       this.applyQuota('fiveHour', vm.fiveHour)
       this.applyQuota('weekly', vm.weekly)
@@ -595,7 +595,7 @@
       this[prefix + 'BarWidth'] = q.pct === null ? 0 : q.pct
       this[prefix + 'Color'] = quota.colorFor(q.pct)
       this[prefix + 'Text'] =
-        (q.remaining === null || q.limit === null) ? '--' : q.remaining + ' / ' + q.limit
+        (q.used === null || q.limit === null) ? '--' : q.used + ' / ' + q.limit
     },
 
     startTicker() {

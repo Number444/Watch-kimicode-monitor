@@ -1,15 +1,16 @@
 /**
  * Kimi Code usages 接口响应解析 + 视图模型工具（纯函数，无系统依赖）
  *
- * 响应结构（字段为字符串数字，已用量 = limit - remaining）：
+ * 响应结构（2026-10 实测，字段为字符串数字；pct/颜色均按「已用」口径）：
  * {
- *   limits: [ { detail: {limit, remaining, resetTime(ms)},
+ *   limits: [ { detail: {limit, used, remaining, resetTime(ISO 微秒)},
  *               window: {duration: 300, timeUnit: 'TIME_UNIT_MINUTE'} } ],  // 5h 滚动窗口
- *   usage:  { limit, remaining, resetTime(ISO) },                          // 周窗口
- *   user:   { membership: { level: 'LEVEL_BASIC|LEVEL_INTERMEDIATE|LEVEL_ADVANCED' } },
- *   parallel: { limit }
+ *   usage:  { limit, used, remaining, resetTime(ISO) },                    // 周窗口
+ *   usages: { limit_5h: {used_ratio}, limit_7d: {used_ratio} },           // 简化口径（未采用）
+ *   booster_wallet: { ... },                                              // Booster 钱包（未采用）
  * }
- * 边缘情况：全新（0% 已用）的 5h 窗口只返回 window 描述符、无 quota 字段 → 视为 100% 剩余
+ * 注：user.membership.level 与 parallel 已于 2026-10 从响应中移除
+ * 边缘情况：全新（0% 已用）的 5h 窗口只返回 window 描述符、无 detail 字段 → 视为 0% 已用
  */
 
 const LEVEL_MAP = {
@@ -30,12 +31,14 @@ function toNum(v) {
   return isNaN(n) ? null : n
 }
 
-function makeQuota(limit, remaining, resetTime) {
+function makeQuota(limit, used, remaining, resetTime) {
   const l = toNum(limit)
   const r = toNum(remaining)
+  let u = toNum(used)
+  if (u === null && l !== null && r !== null) u = l - r // 老格式无 used 字段，由 limit-remaining 兜底
   return {
-    pct: (l !== null && l > 0 && r !== null) ? Math.round(r * 100 / l) : null,
-    remaining: r,
+    pct: (l !== null && l > 0 && u !== null) ? Math.round(u * 100 / l) : null,
+    used: u,
     limit: l,
     resetMs: toMs(resetTime)
   }
@@ -44,8 +47,8 @@ function makeQuota(limit, remaining, resetTime) {
 export function parseUsages(raw) {
   const result = {
     plan: '--',
-    fiveHour: { pct: null, remaining: null, limit: null, resetMs: 0 },
-    weekly: { pct: null, remaining: null, limit: null, resetMs: 0 },
+    fiveHour: { pct: null, used: null, limit: null, resetMs: 0 },
+    weekly: { pct: null, used: null, limit: null, resetMs: 0 },
     parallel: null
   }
   if (!raw || typeof raw !== 'object') return result
@@ -64,16 +67,16 @@ export function parseUsages(raw) {
   if (win) {
     const d = win.detail || win.quota || null
     if (d && d.limit !== undefined && d.remaining !== undefined) {
-      result.fiveHour = makeQuota(d.limit, d.remaining, d.resetTime)
+      result.fiveHour = makeQuota(d.limit, d.used, d.remaining, d.resetTime)
     } else {
-      // 全新窗口：只返回 window 描述符 → 100% 剩余
-      result.fiveHour = { pct: 100, remaining: null, limit: null, resetMs: 0 }
+      // 全新窗口：只返回 window 描述符 → 0% 已用
+      result.fiveHour = { pct: 0, used: 0, limit: null, resetMs: 0 }
     }
   }
 
   // 周窗口
   if (raw.usage && raw.usage.limit !== undefined && raw.usage.remaining !== undefined) {
-    result.weekly = makeQuota(raw.usage.limit, raw.usage.remaining, raw.usage.resetTime)
+    result.weekly = makeQuota(raw.usage.limit, raw.usage.used, raw.usage.remaining, raw.usage.resetTime)
   }
 
   // 套餐档位
@@ -89,11 +92,11 @@ export function parseUsages(raw) {
   return result
 }
 
-/** 按余量百分比取色：>50% 绿 / 20-50% 黄 / <20% 红 */
+/** 按已用百分比取色：<50% 绿 / 50-80% 黄 / >80% 红 */
 export function colorFor(pct) {
   if (pct === null || pct === undefined) return '#8e8e93'
-  if (pct > 50) return '#30d158'
-  if (pct >= 20) return '#ffd60a'
+  if (pct < 50) return '#30d158'
+  if (pct <= 80) return '#ffd60a'
   return '#ff453a'
 }
 
