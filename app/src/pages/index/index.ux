@@ -154,7 +154,7 @@
   import quota from '../../common/quota.js'
 
   const CACHE_KEY = 'quota_cache'
-  const APP_VER = '0.4.1'
+  const APP_VER = '0.5.0'
   const DIAG_MAX_LINES = 8
   const REQ_TIMEOUT_MS = 15000
   const DIAG_INIT = '等待事件…'
